@@ -1,11 +1,13 @@
-#ifndef _KP_H
-#define _KP_H
+#ifndef __KP_H__
+#define __KP_H__
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdbool.h>
 #include <string.h>
 #include <stdlib.h>
 #include <assert.h>
+#include <limits.h>
 
 #define KP_STRCMP(X, Y) strcmp(X, Y) == 0
 
@@ -25,7 +27,7 @@
   @return: a const ptr to buffer
 
 ********************************************************************************/
-const char* KP_DEEP_COPY(char* dest, size_t size) {
+const char* kp_strdup(char* dest, size_t size) {
     size_t _size = size + 1;
     char* ret = (char*) malloc(_size* sizeof(char));
     memcpy(ret, dest, _size);
@@ -35,7 +37,7 @@ const char* KP_DEEP_COPY(char* dest, size_t size) {
 
 
 /********************************************************************************
-  Kp_Usage struct, it is used by Kp_Flag_Main, Kp_Arg
+  Kp_Flag_Usage struct, it is used by Kp_Flag, Kp_Arg
 
     arg_description: is the formatting used for a particular instance defined
     using mk_usage function
@@ -44,32 +46,66 @@ const char* KP_DEEP_COPY(char* dest, size_t size) {
 ********************************************************************************/
 typedef struct {
     char* arg_description;
-    char* description;
-} Kp_Usage;
+    char* arg_type;
 
-/* destroy usage */
-void kp_dk_usage(Kp_Usage* usage) {
+    char* description;
+} Kp_Flag_Usage;
+
+
+void kp_dk_usage(Kp_Flag_Usage* usage) {
     free(usage->arg_description);
 }
-
 
 
 /********************************************************************************
 
 
-Kp_Flag_Main
+Kp_Type: supported types for flags
+
+
+********************************************************************************/
+typedef enum {
+    kp_type_string,
+    kp_type_uint8,
+    kp_type_bool,
+} kp_type;
+
+
+const char* kp_type_to_string(kp_type type) {
+#define KP_TYPE_TO_STRING(X, Y)\
+    case X:\
+        return Y
+
+    switch (type) {
+        KP_TYPE_TO_STRING(kp_type_string, "STRING");
+        KP_TYPE_TO_STRING(kp_type_uint8, "UINT8");
+        KP_TYPE_TO_STRING(kp_type_bool, "BOOL");
+    }
+    return "???";
+}
+
+/********************************************************************************
+
+
+Kp_Flag
 
 
 ********************************************************************************/
 typedef struct {
     char* big_flag;
     char* short_flag;
-    Kp_Usage usage;
-} Kp_Flag_Main;
+
+    kp_type type;
+    bool is_positional;
+    Kp_Flag_Usage usage;
+
+    bool result_bool;
+    char* result_string;
+    uint8_t result_int;
+} Kp_Flag;
 
 
-/*Replaces underscores with dashes*/
-/*Returns count of segments*/
+/*Replaces underscores with dashes and returns count of segments*/
 size_t kp__flag_size_of_significants(char* flag, size_t len) {
     char* begin = flag;
     char* end = flag + len;
@@ -85,7 +121,6 @@ size_t kp__flag_size_of_significants(char* flag, size_t len) {
 
 
 void kp__flag_get_size_for_flags(const char* big_flag, const char* short_flag, size_t* big_flag_size, size_t* short_flag_size) {
-    /*Add space for two dashes*/
     size_t n_null_byte = 1;
     size_t big_n_dashes = 2;
     size_t short_n_dashes = 1;
@@ -101,9 +136,9 @@ void kp__flag_get_size_for_flags(const char* big_flag, const char* short_flag, s
 }
 
 
-void kp__mk_big_flag(Kp_Flag_Main* flag, const char* big_flag, size_t big_flag_size) {
+void kp__mk_big_flag(Kp_Flag* flag, const char* big_flag, size_t big_flag_size) {
     assert(big_flag[0] != '-' && "big flag must not start with -");
-    snprintf(flag->big_flag, big_flag_size, "--%s\0", big_flag);
+    snprintf(flag->big_flag, big_flag_size, "--%s", big_flag);
 
     size_t i=0;
     for(; i < big_flag_size; ++i) {
@@ -114,7 +149,7 @@ void kp__mk_big_flag(Kp_Flag_Main* flag, const char* big_flag, size_t big_flag_s
 }
 
 
-void kp__mk_short_flag(Kp_Flag_Main* flag, const char* short_flag, size_t short_flag_size) {
+void kp__mk_short_flag(Kp_Flag* flag, const char* short_flag, size_t short_flag_size) {
     if (short_flag == NULL) {
         int short_flag_counter = 0;
         char* begin = flag->big_flag + 2;
@@ -131,12 +166,12 @@ void kp__mk_short_flag(Kp_Flag_Main* flag, const char* short_flag, size_t short_
         flag->short_flag[short_flag_counter] = '\0';
     } else {
         assert(short_flag[0] != '-' && "short flag must not start with -");
-        snprintf(flag->short_flag, short_flag_size,  "-%s\0", short_flag);
+        snprintf(flag->short_flag, short_flag_size,  "-%s", short_flag);
     }
 }
 
 
-void kp__mk_flag(Kp_Flag_Main* flag, const char* big_flag, const char* short_flag) {
+void kp__mk_flag(Kp_Flag* flag, const char* big_flag, const char* short_flag) {
     size_t big_flag_size = 0;
     size_t short_flag_size = 0;
     kp__flag_get_size_for_flags(big_flag, short_flag, &big_flag_size, &short_flag_size);
@@ -148,26 +183,23 @@ void kp__mk_flag(Kp_Flag_Main* flag, const char* big_flag, const char* short_fla
     kp__mk_short_flag(flag, short_flag, short_flag_size);
 }
 
-#define KP_FLAG_USAGE_SIZE 3
 
+#define KP_FLAG_USAGE_EXTRA_SIZE 6
 
-void kp__mk_flag_usage(Kp_Flag_Main* flag, const char* description) {
+void kp__mk_flag_usage(Kp_Flag* flag, kp_type flag_type, const char* description) {
     flag->usage.description = description;
+    flag->usage.arg_type = kp_type_to_string(flag_type);
 
-    size_t arg_description_size =  KP_FLAG_USAGE_SIZE + strlen(flag->big_flag) + strlen(flag->short_flag);
+    size_t arg_description_size =  KP_FLAG_USAGE_EXTRA_SIZE + strlen(flag->usage.arg_type) + strlen(flag->big_flag) + strlen(flag->short_flag);
     flag->usage.arg_description = (char*) malloc(arg_description_size* sizeof(char));
-    snprintf(flag->usage.arg_description, arg_description_size, "%s, %s\0", flag->short_flag, flag->big_flag);
+    snprintf(flag->usage.arg_description, arg_description_size, "%s, %s [%s]", flag->short_flag, flag->big_flag, flag->usage.arg_type);
 }
 
 
-void kp_usage_flag_main(Kp_Flag_Main* flag_main, FILE* stream) {
-    fprintf(stream, "    %s\n\t\t%s\n", flag_main->usage.arg_description, flag_main->usage.description);
-}
-
-
-void kp_dk_flag(Kp_Flag_Main* flag) {
+void kp_dk_flag(Kp_Flag* flag, bool is_free_string) {
     free(flag->big_flag);
     free(flag->short_flag);
+    if (is_free_string) free(flag->result_string);
     kp_dk_usage(&flag->usage);
 }
 
@@ -176,65 +208,7 @@ void kp_dk_flag(Kp_Flag_Main* flag) {
 /********************************************************************************
 
 
-Kp_Arg: A required arg which maybe optional bruh
-
-
-********************************************************************************/
-typedef struct {
-    const char* result;     /* malloc */
-
-    Kp_Usage usage;
-} Kp_Arg;
-
-
-/* make Kp_Arg usage*/
-void kp_mk_arg_usage(Kp_Arg* arg, const char* arg_name, const char* description) {
-    arg->usage.arg_description = arg_name;
-    arg->usage.description = description;
-}
-
-
-/* free Kp_Arg */
-void kp_dk_arg(Kp_Arg* arg) {
-    if (arg->result != NULL) {
-        free(arg->result);
-    }
-}
-
-
-
-/********************************************************************************
-
-
-Kp_Flag: A optional flag (boolean)
-
-
-********************************************************************************/
-typedef struct {
-    Kp_Flag_Main* flag;
-    bool result;    
-} Kp_Flag;
-
-
-
-/********************************************************************************
-
-
-Kp_Optional_Arg: A optional flag which has types (requires a value)
-
-
-********************************************************************************/
-typedef struct {
-    Kp_Flag_Main* flag;
-    const char* result; /* malloc */
-} Kp_Optional_Arg;
-
-
-
-/********************************************************************************
-
-
-Kp
+KP
 
 
 ********************************************************************************/
@@ -246,89 +220,46 @@ typedef struct {
     const char* description;
 } Kp_Init;
 
+
 typedef struct {
     Kp_Init* kp_init;
 
-    /*Positional Args*/
-    Kp_Arg** args;
+    /*Args*/
+    Kp_Flag** args;
     size_t args_count;
     size_t curr_args_count;
     
 
-    /*Boolean flags*/
+    /*Optionals*/
     Kp_Flag** flags;
-    size_t flag_count;
-    size_t curr_flag_count;
-
-
-    /*Optional args*/
-    Kp_Optional_Arg** optional_args;
-    size_t optional_args_count;
-    size_t curr_optional_args_count;
+    size_t flags_count;
+    size_t curr_flags_count;
 } Kp;
 
 
-/* Args */
-/* Prints usage of Args in Kp instance to stream */
-void kp_usage_args(Kp* kp, FILE* stream) {
-    int i = 0;
-    for(; i < kp->args_count; ++i) {
-        fprintf(stream, "     %s\n\t%s\n", kp->args[i]->usage.arg_description, kp->args[i]->usage.description);
+#define kp__usage(X, Y, Z)\
+    for(int i = 0; i < Y; ++i) {\
+        fprintf(Z, "\t%s\n\t\t%s\n\n", (X)[i]->usage.arg_description, (X)[i]->usage.description);\
     }
-}
+
+#define kp_usage_args(X, Y) kp__usage((X)->args, (X)->args_count, Y);
+#define kp_usage_flags(X, Y) kp__usage((X)->flags, (X)->flags_count, Y);
 
 
-/* Flags */
-/* Prints usage of flags in Kp instance to stream */
-void kp_usage_flags(Kp* kp, FILE* stream) {
-    int i = 0;
-    for(; i < kp->flag_count; ++i) {
-        kp_usage_flag_main(kp->flags[i]->flag, stream);
-    }
-}
-
-
-/* Optional Args */
-/* Prints usage of optional args in Kp instance to stream */
-void kp_usage_optional_args(Kp* kp, FILE* stream) {
-    int i = 0;
-    for(; i < kp->optional_args_count; ++i) {
-        kp_usage_flag_main(kp->optional_args[i]->flag, stream);
-    }
-}
-
-
-/* Main usage function */
+/* Public api */
 void kp_usage(Kp* kp, FILE* stream) {
-    if (kp->args_count != 0) {
-        fprintf(stream, "USAGE:\n\t%s", kp->kp_init->binary_name);
-        int x;
-        for(x = 0; x < kp->args_count; ++x) {
-            char* _x = kp->args[x]->usage.arg_description;
-            /*_kp_string_uppercase(_x, strlen(_x)); [> START HERE <]*/
-            fprintf(stream, " %s", _x);
-        }
+    assert(kp->curr_args_count == kp->args_count && "kp: Flags count must equivalent to total flags supplied"); 
+    assert(kp->curr_flags_count == kp->flags_count && "kp: Flags count must equivalent to total flags supplied"); 
+    fprintf(stream, "USAGE:\n\t%s [ARGS...] [OPTIONS...]\n", kp->kp_init->binary_name);
 
-        fprintf(stream, " [--flags...] [--optional_args...]\n");
-    } else {
-        fprintf(stream, "\nUSAGE:\n\t%s [--flags...] [--optional_args...]\n", kp->kp_init->binary_name);
-    }
-
-    if (kp->args_count != 0) {
-        fprintf(stream, "\nPOSITIONAL ARGS:\n");
+    if (kp->args_count > 0) {
+        fprintf(stream, "\nARGS:\n");
         kp_usage_args(kp, stream);
     }
 
-    if (kp->optional_args_count != 0) {
-        fprintf(stream, "\nOPTIONAL ARGS:\n");
-        kp_usage_optional_args(kp, stream);
-    }
-
-    fprintf(stream, "\nFLAGS:\n");
-    if (kp->flag_count != 0) {
-        kp_usage_flags(kp, stream);
-    }
-    fprintf(stream, "    %s, %s\n\t\t%s\n", "-h", "--help", "prints help message");
+    fprintf(stream, "\nOPTIONS:\n\n");
+    kp_usage_flags(kp, stream);
+    fprintf(stream, "\t%s, %s\n\t\t%s\n", "-h", "--help [BOOL]", "show help");
 }
 
 
@@ -336,281 +267,221 @@ void kp_usage(Kp* kp, FILE* stream) {
 void kp_usage_big(Kp* kp, FILE* stream) {
     fprintf(stream, "%s %s\n", kp->kp_init->project_name, kp->kp_init->version);
     if (kp->kp_init->description != NULL) {
-        fprintf(stream, "\nDESCRIPTION:\n\t%s\n", kp->kp_init->description);
+        fprintf(stream, "\nDESCRIPTION:\n\t%s\n\n", kp->kp_init->description);
     }
     
     kp_usage(kp, stream);
 }
 
 
-/* Exit if flag is a help flag*/
-int kp_check_help_and_exit(Kp* kp, const char* flag) {
-    if (KP_STRCMP(flag, "-h")) {
-        kp_usage(kp, stdout);
-        exit(0);
-    } else if (KP_STRCMP(flag, "--help")) {
-        kp_usage_big(kp, stdout);
-        exit(0);
-    }
-    return -1;
-}
-
-
-
 /********************************************************************************
 
 
-Kp parse
+KP MAIN PUBLIC FUNCTIONS
 
 
 ********************************************************************************/
-typedef enum {
-    kp_parse_type_parse_arg,
-    kp_parse_type_parse_flag,
-    kp_parse_type_parse_optional_arg,
-
-    /*Flag types errors*/
-    kp_parse_type_invaild_no_args,
-    kp_parse_type_invaild_args,
-    kp_parse_type_invaild_type,
-} kp_parse_type;
-
-
-/* Parse boolean flags */
-kp_parse_type kp_parse_flags(Kp* kp, char** args_begin, char** args_end) {
-    assert(kp->curr_flag_count == kp->flag_count);
-
-    char** args_next = args_begin + 1;
-
-    int i = 0;
-    for(; i < kp->flag_count; ++i) {
-        if (KP_STRCMP(*args_begin, (kp->flags[i])->flag->big_flag) || KP_STRCMP(*args_begin, (kp->flags[i])->flag->short_flag)) {
-            KP_TOGGLE_BOOLEAN(kp->flags[i]->result);
-            return kp_parse_type_parse_flag;
-        } 
-
-        /* Check help flag */
-        kp_check_help_and_exit(kp, *args_begin);
-    }
-
-    if (args_next != args_end) {
-        return kp_parse_type_parse_optional_arg;
-    }
-
-    return kp_parse_type_parse_optional_arg; /* Check in optional flags */
-}
-
-
-/* Parse optional args */
-kp_parse_type kp_parse_optional_args(Kp* kp, char** args_begin, char** args_end) {
-    assert(kp->curr_optional_args_count == kp->optional_args_count);
-
-    char** args_next = args_begin + 1;
-
-    int i = 0;
-    for(; i < kp->optional_args_count; ++i) {
-        if (KP_STRCMP(*args_begin, (kp->optional_args[i])->flag->big_flag) || KP_STRCMP(*args_begin, (kp->optional_args[i])->flag->short_flag)) {
-            if (args_next == args_end) {
-                return kp_parse_type_invaild_no_args;
-            } else {
-                /*Checks if the next arg is not a flag if yes take that value as a result else fail*/
-                if (*args_next[0] != '-') {
-                    kp->optional_args[i]->result = KP_DEEP_COPY(*args_next, strlen(*args_next));
-                    return kp_parse_type_parse_flag;
-                } else {
-                    return kp_parse_type_invaild_args;
-                }
-            }
-        }
-    }
-
-    return kp_parse_type_invaild_type;
-}
-
-
-
-/********************************************************************************
-
-
-Kp main public functions
-
-
-********************************************************************************/
-  
-/* Initializes Kp that handles the parsing and stuff*/
-void kp_mk(Kp* kp, Kp_Init* kp_init, size_t args_count, size_t flag_count, size_t optional_args_count) {
+void kp_mk(Kp* kp, Kp_Init* kp_init, size_t args_count, size_t flags_count) {
     kp->kp_init = kp_init;
 
-    /*Positional Args*/
     kp->args_count = args_count;
     kp->curr_args_count = 0;
-    kp->args = (Kp_Arg**) malloc(kp->args_count * sizeof(Kp_Arg*));
 
-    /*Flags*/
-    kp->flag_count = flag_count;
-    kp->curr_flag_count = 0;
-    kp->flags = (Kp_Flag**) malloc(kp->flag_count * sizeof(Kp_Flag*));
+    kp->flags_count = flags_count;
+    kp->curr_flags_count = 0;
 
-    /*Optional args*/
-    kp->optional_args_count = optional_args_count;
-    kp->curr_optional_args_count = 0;
-    kp->optional_args = (Kp_Optional_Arg**) malloc(kp->optional_args_count * sizeof(Kp_Optional_Arg*));
+#define kp_mk__allocate(X, Y)\
+    if (Y > 0) {\
+        X = (Kp_Flag**) malloc(Y * sizeof(Kp_Flag*));\
+    }
+
+#define kp_mk_allocate_args(X) kp_mk__allocate(X->args, X->args_count)
+#define kp_mk_allocate_flags(X) kp_mk__allocate(X->flags, X->flags_count)
+
+    kp_mk_allocate_args(kp);
+    kp_mk_allocate_flags(kp);
 }
 
+#define kp__free_flag(X) kp_dk_flag((X)[i], false);
+#define kp__free_panic_flag(X) kp_dk_flag((X)[i], true);
 
-/* free Kp */
-void kp_free(Kp* kp) {
-    /*Positional Args*/
-    int k = 0;
-    for(; k < kp->args_count; ++k) {
-        kp_dk_arg(kp->args[k]);
-        free(kp->args[k]);
+#define kp__free(X, Y, Z)\
+    if (Y > 0) {\
+        for(int i=0; i < Y; ++i) {\
+            Z(X);\
+            free((X)[i]);\
+        }\
+        free(X);\
     }
-    free(kp->args);
 
-    /*Flags*/
-    int i = 0;
-    for(; i < kp->flag_count; ++i) {
-        kp_dk_flag(kp->flags[i]->flag);
-        free(kp->flags[i]->flag);
-        free(kp->flags[i]);
-    }
-    free(kp->flags);
+#define kp_free_args(X) kp__free((X)->args, (X)->args_count, kp__free_flag)
+#define kp_free_flags(X) kp__free((X)->flags, (X)->flags_count, kp__free_flag)
 
-    /*Optional args*/
-    int j = 0;
-    for(; j < kp->optional_args_count; ++j) {
-        kp_dk_flag(kp->optional_args[j]->flag);
-        free(kp->optional_args[j]->flag);
-        if (kp->optional_args[j]->result != NULL) {
-            free(kp->optional_args[j]->result);
-        }
-        free(kp->optional_args[j]);
-    }
-    free(kp->optional_args);
-}
+#define kp_free_panic_args(X) kp__free((X)->args, (X)->args_count, kp__free_panic_flag)
+#define kp_free_panic_flags(X) kp__free((X)->flags, (X)->flags_count, kp__free_panic_flag)
+
+#define kp_free(X)\
+    kp_free_args(X);\
+    kp_free_flags(X)
+
+#define kp_free_panic(X)\
+    kp_free_panic_args(X);\
+    kp_free_panic_flags(X)\
 
 
-/* Initialize Kp_Arg, would be used by the usr */
-Kp_Arg* kp_arg(Kp* kp, const char* arg_name, const char* description) {
-    Kp_Arg* arg = (Kp_Arg*) malloc(1 * sizeof(Kp_Arg));
-    /*mk_arg();*/
-    kp_mk_arg_usage(arg, arg_name, description);
+Kp_Flag* kp_flag(Kp* kp, kp_type flag_type, const char* big_flag, const char* short_flag, const char* description) {
+    assert(kp->curr_flags_count != kp->flags_count);
 
-    arg->result = NULL;
+    Kp_Flag* flag = (Kp_Flag*) malloc(sizeof(Kp_Flag));
+    flag->type = flag_type;
+    kp__mk_flag(flag, big_flag, short_flag);
+    kp__mk_flag_usage(flag, flag_type, description);
 
-    assert(kp->curr_args_count != kp->args_count);
-    kp->args[kp->curr_args_count++] = arg;
-}
-
-
-/* Initializes Kp_Flag boolean like a swtich */
-Kp_Flag* kp_flag(Kp* kp, const bool default_bool, const char* big_flag, const char* short_flag, const char* description) {
-    Kp_Flag_Main* flag_main = (Kp_Flag_Main*) malloc(1 * sizeof(Kp_Flag_Main));
-    kp__mk_flag(flag_main, big_flag, short_flag);
-    kp__mk_flag_usage(flag_main, description);
-
-    Kp_Flag* flag = (Kp_Flag*) malloc(1 * sizeof(Kp_Flag));
-    flag->flag = flag_main;
-    flag->result = default_bool;
-        
-    assert(kp->curr_flag_count != kp->flag_count);
-    kp->flags[kp->curr_flag_count++] = flag;
+    flag->result_int = 0;
+    flag->result_string = NULL;
+    flag->result_int = false;
+    
+    kp->flags[kp->curr_flags_count++] = flag;
     return flag;
 }
 
+bool* kp_flag_bool(Kp* kp, bool default_bool, const char* short_flag, const char* big_flag, const char* description) {
+    Kp_Flag* flag = kp_flag(kp, kp_type_bool, short_flag, big_flag, description);
+    flag->result_bool = default_bool;
+    return &flag->result_bool;
+}
 
-/* Initialize Kp_Optional_Arg which requires a argument right now its just string*/
-Kp_Optional_Arg* kp_optional_arg(Kp* kp, const char* big_flag, const char* short_flag, const char* description) {
-    Kp_Flag_Main* flag_main = (Kp_Flag_Main*) malloc(1 * sizeof(Kp_Flag_Main));
-    kp__mk_flag(flag_main, big_flag, short_flag);
-    kp__mk_flag_usage(flag_main, description);
+char** kp_flag_string(Kp* kp, const char* default_string, const char* short_flag, const char* big_flag, const char* description) {
+    Kp_Flag* flag = kp_flag(kp, kp_type_string, short_flag, big_flag, description);
 
-    Kp_Optional_Arg* optional_arg = (Kp_Optional_Arg*) malloc(1 * sizeof(Kp_Flag));
-    optional_arg->flag = flag_main;
-    optional_arg->result = NULL;
+    if (default_string != NULL) flag->result_string = kp_strdup(default_string, strlen(default_string));
+    return &flag->result_string;
+}
 
-    assert(kp->curr_optional_args_count != kp->optional_args_count);
-    kp->optional_args[kp->curr_optional_args_count++] = optional_arg;
-
-    return optional_arg;
+uint8_t* kp_flag_uint8(Kp* kp, uint8_t default_int, const char* short_flag, const char* big_flag, const char* description) {
+    Kp_Flag* flag = kp_flag(kp, kp_type_uint8, short_flag, big_flag, description);
+    if (default_int != 0) flag->result_int = default_int;
+    return &flag->result_int;
 }
 
 
-/* This is does the parsing */
-void kp_parse(Kp* kp, char** argv, int argc) {
-    assert(kp->curr_flag_count == kp->curr_flag_count);
-    assert(kp->curr_optional_args_count == kp->optional_args_count);
+/********************************************************************************
 
+
+KP PARSE
+
+
+********************************************************************************/
+
+#define kp_parse_error(X, ...)\
+    fprintf(stderr, "%s: ", (X)->kp_init->binary_name);\
+    fprintf(stderr, __VA_ARGS__)
+
+#define KP_PRINT_ARGUMENT_REQUIRED(X, Y, Z)\
+    kp_parse_error(X, "Argument required: %s [%s]\n", Z, (Y)->usage.arg_type)
+
+#define KP_NEXT(X) X + 1
+
+#define KP_MAX_STRING_SIZE 255
+#define KP_MAX_INT_SIZE 255
+
+#define kp_parse_check_help(X, Y)\
+    if (KP_STRCMP(Y, "-h")) {\
+        kp_usage(X, stdout);\
+        kp_free_panic(X);\
+        exit(0);\
+    } else if (KP_STRCMP(Y, "--help")) {\
+        kp_usage_big(X, stdout);\
+        kp_free_panic(X);\
+        exit(0);\
+    }
+
+bool kp_parse_check_string_size(const char* arg, size_t max_len) {
+    size_t curr_size = 0;
+    while(arg[curr_size++] != '\0') {
+        if (curr_size > max_len) return false;
+    }
+    return true;
+}
+
+Kp_Flag* kp_parse_check_flag(Kp* kp, char* args_curr) {
+    for(int i = 0; i < kp->flags_count; ++i) {
+        Kp_Flag* curr_flag = kp->flags[i];
+        if (KP_STRCMP(args_curr, curr_flag->big_flag) || KP_STRCMP(args_curr, curr_flag->short_flag)) {
+            return curr_flag;
+        }
+    }
+    return NULL;
+}
+
+void kp_parse(Kp* kp, char** argv, int argc) {
+    assert(kp->curr_flags_count == kp->curr_flags_count);
 
     char** args_begin = argv + 1;
     char** args_end = argv + argc;
-    
-    /* Parse Positional Args */
-    if (kp->args_count != 0) {
-        if (argc < 2) {
-            fprintf(stderr, "ERROR: missing args\n");
-            kp_usage(kp, stderr);
-            exit(1);
-        }
-    }
 
-    int x;
-    for(x = 0; x < kp->args_count; ++x) {
-        if (args_begin != args_end) {
-            if (*args_begin[0] == '-') {
-                if (kp_check_help_and_exit(kp, *args_begin) < 0) {
-                    fprintf(stderr, "INVAILD: arg %s\n", *args_begin);
-                    exit(1);
-                }
-            }
-        }
-        kp->args[x]->result = KP_DEEP_COPY(*args_begin, strlen(*args_begin));
-        args_begin++;
-    }
+    char** args_next = NULL;
 
-    /* Parse flags and optional args */
     while(args_begin != args_end) {
-        kp_parse_type flag_status = kp_parse_flags(kp, args_begin, args_end);
+        args_next = KP_NEXT(args_begin);
 
-        switch (flag_status) {
-            case kp_parse_type_parse_flag:
-                goto CONTINUE_PARSE;
-                break;
+        kp_parse_check_help(kp, *args_begin);
 
-            case kp_parse_type_parse_optional_arg: 
-                {
-                    kp_parse_type optional_arg_status = kp_parse_optional_args(kp, args_begin, args_end);
-                    switch (optional_arg_status) { 
-                        case kp_parse_type_parse_flag:
+        Kp_Flag* flag;
+        if ((flag = kp_parse_check_flag(kp, *args_begin)) != NULL) {
+            switch (flag->type) {
+                case kp_type_bool:
+                    KP_TOGGLE_BOOLEAN(flag->result_bool);
+                    goto CONTINUE_PARSE;
+
+                case kp_type_string:
+                    if (args_next != args_end && *args_next[0] != '-') {
+                        if (! kp_parse_check_string_size(*args_next, KP_MAX_STRING_SIZE)) {
+                            kp_parse_error(kp, "ERROR: overflowing max buffer size\n");
+                            kp_free_panic(kp);
+                            exit(1);
+                        }
+
+                        if (flag->result_string != NULL) free(flag->result_string);
+                        flag->result_string = kp_strdup(*args_next, strlen(*args_next));
+                        args_begin++;
+                        goto CONTINUE_PARSE;
+                    } else {
+                        KP_PRINT_ARGUMENT_REQUIRED(kp, flag, *args_begin);
+                        exit(1);
+                    }
+
+                case kp_type_uint8:
+                    if (args_next != args_end) { 
+                        if (kp_parse_check_string_size(*args_next, 3)) {
+                            uint8_t _result_int = atoi(*args_next);
+                            if (_result_int > INT_MAX) {
+                                kp_parse_error(kp, "ERROR: 8-bit integer required\n");
+                                kp_free_panic(kp);
+                                exit(1);
+                            }
+                            flag->result_int = _result_int;
                             args_begin++;
                             goto CONTINUE_PARSE;
-                        case kp_parse_type_invaild_args:
-                            fprintf(stderr, "INVAILD: %s requires args\n", *args_begin);
+                        } else {
+                            kp_parse_error(kp, "ERROR: 8-bit integer required\n");
+                            kp_free_panic(kp);
                             exit(1);
-                        case kp_parse_type_invaild_no_args:
-                            fprintf(stderr, "INVAILD: NO ARGS GIVEN: %s requires args\n", *args_begin);
-                            exit(1);
-                        case kp_parse_type_invaild_type:
-                            fprintf(stderr, "INVAILD: WTF is %s bastard\n", *args_begin);
-                            exit(1);
-                        default:
-                            fprintf(stderr, "??? %s\n", *args_begin);
+                        }
+                    } else {
+                        KP_PRINT_ARGUMENT_REQUIRED(kp, flag, *args_begin);
+                        kp_free_panic(kp);
+                        exit(1);
                     }
-                }
-                break;
-
-            case kp_parse_type_invaild_type:
-                fprintf(stderr, "INVAILD: WTF is %s bastard\n", *args_begin);
-                exit(1);
-                break;
-
-            default:
-                fprintf(stderr, "??? %s\n", *args_begin);
+            }
+        } else {
+            kp_parse_error(kp, "ERROR: Invaild option \"%s\"\n", *args_begin);
+            kp_free_panic(kp);
+            exit(1);
         }
 
-CONTINUE_PARSE:
-        args_begin++;
+    CONTINUE_PARSE:
+            args_begin++;
     }
 }
 
