@@ -57,6 +57,7 @@ void kp_dk_usage(Kp_Flag_Usage* usage) {
 }
 
 
+
 /********************************************************************************
 
 
@@ -83,6 +84,8 @@ const char* kp_type_to_string(kp_type type) {
     }
     return "???";
 }
+
+
 
 /********************************************************************************
 
@@ -119,7 +122,6 @@ size_t kp__flag_size_of_significants(char* flag, size_t len) {
     return count;
 }
 
-
 void kp__flag_get_size_for_flags(const char* big_flag, const char* short_flag, size_t* big_flag_size, size_t* short_flag_size) {
     size_t n_null_byte = 1;
     size_t big_n_dashes = 2;
@@ -135,7 +137,6 @@ void kp__flag_get_size_for_flags(const char* big_flag, const char* short_flag, s
     }
 }
 
-
 void kp__mk_big_flag(Kp_Flag* flag, const char* big_flag, size_t big_flag_size) {
     assert(big_flag[0] != '-' && "big flag must not start with -");
     snprintf(flag->big_flag, big_flag_size, "--%s", big_flag);
@@ -147,7 +148,6 @@ void kp__mk_big_flag(Kp_Flag* flag, const char* big_flag, size_t big_flag_size) 
         }
     }
 }
-
 
 void kp__mk_short_flag(Kp_Flag* flag, const char* short_flag, size_t short_flag_size) {
     if (short_flag == NULL) {
@@ -169,7 +169,6 @@ void kp__mk_short_flag(Kp_Flag* flag, const char* short_flag, size_t short_flag_
         snprintf(flag->short_flag, short_flag_size,  "-%s", short_flag);
     }
 }
-
 
 void kp__mk_flag(Kp_Flag* flag, const char* big_flag, const char* short_flag) {
     size_t big_flag_size = 0;
@@ -194,7 +193,6 @@ void kp__mk_flag_usage(Kp_Flag* flag, kp_type flag_type, const char* description
     flag->usage.arg_description = (char*) malloc(arg_description_size* sizeof(char));
     snprintf(flag->usage.arg_description, arg_description_size, "%s, %s [%s]", flag->short_flag, flag->big_flag, flag->usage.arg_type);
 }
-
 
 void kp_dk_flag(Kp_Flag* flag, bool is_free_string) {
     free(flag->big_flag);
@@ -229,7 +227,6 @@ typedef struct {
     size_t args_count;
     size_t curr_args_count;
     
-
     /*Optionals*/
     Kp_Flag** flags;
     size_t flags_count;
@@ -245,8 +242,6 @@ typedef struct {
 #define kp_usage_args(X, Y) kp__usage((X)->args, (X)->args_count, Y);
 #define kp_usage_flags(X, Y) kp__usage((X)->flags, (X)->flags_count, Y);
 
-
-/* Public api */
 void kp_usage(Kp* kp, FILE* stream) {
     assert(kp->curr_args_count == kp->args_count && "kp: Flags count must equivalent to total flags supplied"); 
     assert(kp->curr_flags_count == kp->flags_count && "kp: Flags count must equivalent to total flags supplied"); 
@@ -257,11 +252,10 @@ void kp_usage(Kp* kp, FILE* stream) {
         kp_usage_args(kp, stream);
     }
 
-    fprintf(stream, "\nOPTIONS:\n\n");
+    fprintf(stream, "OPTIONS:\n");
     kp_usage_flags(kp, stream);
     fprintf(stream, "\t%s, %s\n\t\t%s\n", "-h", "--help [BOOL]", "show help");
 }
-
 
 /* This prints help message containing project name, version, description and options details */
 void kp_usage_big(Kp* kp, FILE* stream) {
@@ -272,6 +266,7 @@ void kp_usage_big(Kp* kp, FILE* stream) {
     
     kp_usage(kp, stream);
 }
+
 
 
 /********************************************************************************
@@ -328,41 +323,70 @@ void kp_mk(Kp* kp, Kp_Init* kp_init, size_t args_count, size_t flags_count) {
     kp_free_panic_args(X);\
     kp_free_panic_flags(X)\
 
+#define kp__flag_init(T, W, X, Y, Z)\
+    T = (Kp_Flag*) malloc(sizeof(Kp_Flag));\
+    T->type = W;\
+    kp__mk_flag(T, X, Y);\
+    kp__mk_flag_usage(T, W, Z);\
+\
+    T->result_int = 0;\
+    T->result_string = NULL;\
+    T->result_int = false;
+
 
 Kp_Flag* kp_flag(Kp* kp, kp_type flag_type, const char* big_flag, const char* short_flag, const char* description) {
     assert(kp->curr_flags_count != kp->flags_count);
-
-    Kp_Flag* flag = (Kp_Flag*) malloc(sizeof(Kp_Flag));
-    flag->type = flag_type;
-    kp__mk_flag(flag, big_flag, short_flag);
-    kp__mk_flag_usage(flag, flag_type, description);
-
-    flag->result_int = 0;
-    flag->result_string = NULL;
-    flag->result_int = false;
-    
-    kp->flags[kp->curr_flags_count++] = flag;
-    return flag;
+    kp__flag_init(kp->flags[kp->curr_flags_count], flag_type, big_flag, short_flag, description);
+    return kp->flags[kp->curr_flags_count++];
 }
 
-bool* kp_flag_bool(Kp* kp, bool default_bool, const char* short_flag, const char* big_flag, const char* description) {
-    Kp_Flag* flag = kp_flag(kp, kp_type_bool, short_flag, big_flag, description);
+Kp_Flag* kp_arg(Kp* kp, kp_type flag_type, const char* big_flag, const char* short_flag, const char* description) {
+    assert(kp->curr_args_count != kp->args_count);
+    kp__flag_init(kp->args[kp->curr_args_count], flag_type, big_flag, short_flag, description);
+    return kp->args[kp->curr_args_count++];
+}
+
+bool* kp_flag_bool(Kp* kp, bool default_bool, const char* big_flag, const char* short_flag, const char* description) {
+    Kp_Flag* flag = kp_flag(kp, kp_type_bool, big_flag, short_flag, description);
     flag->result_bool = default_bool;
     return &flag->result_bool;
 }
 
-char** kp_flag_string(Kp* kp, const char* default_string, const char* short_flag, const char* big_flag, const char* description) {
-    Kp_Flag* flag = kp_flag(kp, kp_type_string, short_flag, big_flag, description);
+bool* kp_arg_bool(Kp* kp, bool default_bool, const char* big_flag, const char* short_flag, const char* description) {
+    Kp_Flag* flag = kp_arg(kp, kp_type_bool, big_flag, short_flag, description);
+    flag->result_bool = default_bool;
+    flag->is_positional = true;
+    return &flag->result_bool;
+}
+
+char** kp_flag_string(Kp* kp, const char* default_string, const char* big_flag, const char* short_flag, const char* description) {
+    Kp_Flag* flag = kp_flag(kp, kp_type_string, big_flag, short_flag, description);
 
     if (default_string != NULL) flag->result_string = kp_strdup(default_string, strlen(default_string));
     return &flag->result_string;
 }
 
-uint8_t* kp_flag_uint8(Kp* kp, uint8_t default_int, const char* short_flag, const char* big_flag, const char* description) {
-    Kp_Flag* flag = kp_flag(kp, kp_type_uint8, short_flag, big_flag, description);
+char** kp_arg_string(Kp* kp, const char* default_string, const char* big_flag, const char* short_flag, const char* description) {
+    Kp_Flag* flag = kp_arg(kp, kp_type_string, big_flag, short_flag, description);
+    flag->is_positional = true;
+
+    if (default_string != NULL) flag->result_string = kp_strdup(default_string, strlen(default_string));
+    return &flag->result_string;
+}
+
+uint8_t* kp_flag_uint8(Kp* kp, uint8_t default_int, const char* big_flag, const char* short_flag, const char* description) {
+    Kp_Flag* flag = kp_flag(kp, kp_type_uint8, big_flag, short_flag, description);
     if (default_int != 0) flag->result_int = default_int;
     return &flag->result_int;
 }
+
+uint8_t* kp_arg_uint8(Kp* kp, uint8_t default_int, const char* big_flag, const char* short_flag, const char* description) {
+    Kp_Flag* flag = kp_arg(kp, kp_type_uint8, big_flag, short_flag, description);
+    flag->is_positional = true;
+    if (default_int != 0) flag->result_int = default_int;
+    return &flag->result_int;
+}
+
 
 
 /********************************************************************************
@@ -372,7 +396,6 @@ KP PARSE
 
 
 ********************************************************************************/
-
 #define kp_parse_error(X, ...)\
     fprintf(stderr, "%s: ", (X)->kp_init->binary_name);\
     fprintf(stderr, __VA_ARGS__)
@@ -405,12 +428,20 @@ bool kp_parse_check_string_size(const char* arg, size_t max_len) {
 }
 
 Kp_Flag* kp_parse_check_flag(Kp* kp, char* args_curr) {
-    for(int i = 0; i < kp->flags_count; ++i) {
-        Kp_Flag* curr_flag = kp->flags[i];
-        if (KP_STRCMP(args_curr, curr_flag->big_flag) || KP_STRCMP(args_curr, curr_flag->short_flag)) {
-            return curr_flag;
-        }
+#define kp_parse_check_in(X, Y, Z)\
+    for(int i = 0; i < Y; ++i) {\
+        if (KP_STRCMP((Z), (X)[i]->big_flag) || KP_STRCMP((Z), (X)[i]->short_flag)) {\
+            return (X)[i];\
+        }\
     }
+
+#define kp_parse_check_in_flags(X, Y) kp_parse_check_in((X)->flags, (X)->flags_count, Y)
+#define kp_parse_check_in_args(X, Y) kp_parse_check_in((X)->args, (X)->args_count, Y)
+
+    /* Cache it ??*/
+    kp_parse_check_in_flags(kp, args_curr);
+    kp_parse_check_in_args(kp, args_curr);
+
     return NULL;
 }
 
