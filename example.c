@@ -18,7 +18,7 @@ int main(int argc, char** argv) {
 
     if (argc < 2) {
         kp_usage(&kp, stderr);
-        kp_free_panic(&kp);
+        kp_free(&kp);
         exit(1);
     }
 
@@ -27,12 +27,11 @@ int main(int argc, char** argv) {
     /*Check if the positional arg is provided on your own XD and raise error accordingly*/
     if (*your_name == NULL ) {
         fprintf(stderr, "--your-name is required\n");
-        kp_free_panic(&kp);
+        kp_free(&kp);
         exit(1);
     } else {
         // do something with "your-name" (positional arg)
         fprintf(stdout, "your name is %s\n", *your_name);
-        free(*your_name);
     }
     
     if (*follow_symlinks) {
@@ -41,7 +40,6 @@ int main(int argc, char** argv) {
 
     if (*url != NULL) {
         // do something if we get a url
-        free(*url);
     }
 
     // do something with depth (it already has a default value)

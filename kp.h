@@ -194,10 +194,10 @@ void kp__mk_flag_usage(Kp_Flag* flag, kp_type flag_type, const char* description
     snprintf(flag->usage.arg_description, arg_description_size, "%s, %s [%s]", flag->short_flag, flag->big_flag, flag->usage.arg_type);
 }
 
-void kp_dk_flag(Kp_Flag* flag, bool is_free_string) {
+void kp_dk_flag(Kp_Flag* flag) {
     free(flag->big_flag);
     free(flag->short_flag);
-    if (is_free_string) free(flag->result_string);
+    if (flag->result_string != NULL) free(flag->result_string);
     kp_dk_usage(&flag->usage);
 }
 
@@ -297,13 +297,10 @@ void kp_mk(Kp* kp, Kp_Init* kp_init, size_t args_count, size_t flags_count) {
     kp_mk_allocate_flags(kp);
 }
 
-#define kp__free_flag(X) kp_dk_flag((X)[i], false);
-#define kp__free_panic_flag(X) kp_dk_flag((X)[i], true);
-
 #define kp__free(X, Y, Z)\
     if (Y > 0) {\
         for(int i=0; i < Y; ++i) {\
-            Z(X);\
+            kp_dk_flag(X[i]);\
             free((X)[i]);\
         }\
         free(X);\
@@ -312,16 +309,9 @@ void kp_mk(Kp* kp, Kp_Init* kp_init, size_t args_count, size_t flags_count) {
 #define kp_free_args(X) kp__free((X)->args, (X)->args_count, kp__free_flag)
 #define kp_free_flags(X) kp__free((X)->flags, (X)->flags_count, kp__free_flag)
 
-#define kp_free_panic_args(X) kp__free((X)->args, (X)->args_count, kp__free_panic_flag)
-#define kp_free_panic_flags(X) kp__free((X)->flags, (X)->flags_count, kp__free_panic_flag)
-
 #define kp_free(X)\
     kp_free_args(X);\
     kp_free_flags(X)
-
-#define kp_free_panic(X)\
-    kp_free_panic_args(X);\
-    kp_free_panic_flags(X)\
 
 #define kp__flag_init(T, W, X, Y, Z)\
     T = (Kp_Flag*) malloc(sizeof(Kp_Flag));\
@@ -411,11 +401,11 @@ KP PARSE
 #define kp_parse_check_help(X, Y)\
     if (KP_STRCMP(Y, "-h")) {\
         kp_usage(X, stdout);\
-        kp_free_panic(X);\
+        kp_free(X);\
         exit(0);\
     } else if (KP_STRCMP(Y, "--help")) {\
         kp_usage_big(X, stdout);\
-        kp_free_panic(X);\
+        kp_free(X);\
         exit(0);\
     }
 
@@ -469,7 +459,7 @@ void kp_parse(Kp* kp, char** argv, int argc) {
                     if (args_next != args_end && *args_next[0] != '-') {
                         if (! kp_parse_check_string_size(*args_next, KP_MAX_STRING_SIZE)) {
                             kp_parse_error(kp, "ERROR: overflowing max buffer size\n");
-                            kp_free_panic(kp);
+                            kp_free(kp);
                             exit(1);
                         }
 
@@ -488,7 +478,7 @@ void kp_parse(Kp* kp, char** argv, int argc) {
                             uint8_t _result_int = atoi(*args_next);
                             if (_result_int > INT_MAX) {
                                 kp_parse_error(kp, "ERROR: 8-bit integer required\n");
-                                kp_free_panic(kp);
+                                kp_free(kp);
                                 exit(1);
                             }
                             flag->result_int = _result_int;
@@ -496,18 +486,18 @@ void kp_parse(Kp* kp, char** argv, int argc) {
                             goto CONTINUE_PARSE;
                         } else {
                             kp_parse_error(kp, "ERROR: 8-bit integer required\n");
-                            kp_free_panic(kp);
+                            kp_free(kp);
                             exit(1);
                         }
                     } else {
                         KP_PRINT_ARGUMENT_REQUIRED(kp, flag, *args_begin);
-                        kp_free_panic(kp);
+                        kp_free(kp);
                         exit(1);
                     }
             }
         } else {
             kp_parse_error(kp, "ERROR: Invaild option \"%s\"\n", *args_begin);
-            kp_free_panic(kp);
+            kp_free(kp);
             exit(1);
         }
 
